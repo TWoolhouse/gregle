@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup, Tag
 from requests_html import HTMLSession
 from datetime import datetime, date
 import json
+from log import log
 
 RES = Path(__file__).parent / "res"
 CACHE_TIME = RES / "cache.txt"
@@ -28,7 +29,7 @@ class Extractor:
 
 		with open(CACHE, "rb") as file:
 			self.soup = BeautifulSoup(file, "html.parser")
-		print(">----- Extracting Calendar -----<")
+		log.info(">----- Extracting Calendar -----<")
 		self.current_week: date = date(1, 1, 1)
 		self.lectures = self._find_lectures()
 		self.weeks = self._find_weeks()
@@ -51,7 +52,7 @@ class Extractor:
 					self.current_week = out
 		for sem in sems.values():
 			sem.sort()
-		print("Current Week:", self.current_week.strftime("%d/%m/%Y"))
+		log.info(f"Current Week: {self.current_week.strftime('%d/%m/%Y')}")
 		return sems
 
 	def _find_lectures(self):
@@ -75,7 +76,7 @@ class Extractor:
 					lecture["time"] = str(int(time))
 					lecture["length"] = str(length)
 					time += length
-		print("Found Lessons:", len(lectures))
+		log.info(f"Found Lessons: {len(lectures)}")
 		return list(lectures.values())
 
 	FIELDS = {
@@ -105,8 +106,8 @@ class Extractor:
 			file.write(datetime.now().strftime(self.TIME_FORMAT))
 
 	def execute_request(self, path: Path):
-		print(">----- Loughborough Web Calendar -----<")
-		print("Requesting Timetable")
+		log.info(">----- Loughborough Web Calendar -----<")
+		log.info("Requesting Timetable")
 		URL = "https://lucas.lboro.ac.uk/its_apx/f?p=student_timetable"
 		USER_AGENT = {
 			"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.51 Safari/537.36"
@@ -137,7 +138,7 @@ class Extractor:
 		fields[form.find("#username", first=True).attrs["name"]] = credentials["username"]
 		fields[form.find("#password", first=True).attrs["name"]] = credentials["password"]
 
-		print("Requesting Sign In")
+		log.info("Requesting Sign In")
 
 		# SIGN-IN PAGE
 		r = session.post(
@@ -150,7 +151,7 @@ class Extractor:
 		form = r.html.find("form", first=True)
 		url, fields = read_form_data(form)
 
-		print("Requesting Content")
+		log.info("Requesting Content")
 		# Content Page
 		r = session.post(
 			url,
@@ -160,7 +161,7 @@ class Extractor:
 		)
 
 		r.html.render(sleep=0.25, reload=True)
-		print("Calendar Cache Downloading")
+		log.info("Calendar Cache Downloading")
 		with open(path, "wb") as file:
 			file.writelines(r.iter_content())
 		self.cache_time(CACHE_TIME)
