@@ -1,6 +1,9 @@
 import logging
 import os
-from path import Path as PATH
+import sys
+from pathlib import Path
+
+PATH = Path(sys.argv[0]).resolve().parent.absolute()
 
 
 

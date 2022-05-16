@@ -1,15 +1,19 @@
-L = "Loughborough"
-LU = "Loughborough University"
-LE113TU = f"{LU}, Margaret Keay Road, {L} LE11 3TU"
-LE113TP = f"University Road, {L} LE11 3TP"
-
 BUILDING = {
-	"CC": f"James France, {LE113TU}",
-	"N": f"Haslegrave Building, {LE113TP}",
-	"U": f"Brockington Building, {LE113TU}",
-	"SMB": f"Stewart Mason Building, {LE113TU}",
-	"MST": "Microsoft Teams"
+	"MHL": "Martin Hall, Epinal Way, Loughborough LE11 3TS",
+	"MST": "Microsoft Teams",
+	"SCH": "Schofield Building, University Rd, Loughborough LE11 3TU",
+	"SMB": "Stewart Mason Building, Margaret Keay Rd, Loughborough LE11 3TU",
+	"WAV": "Wavy Top, Loughborough LE11 3TU",
+	"WPT": "West Park Teaching Hub, 2 Oakwood Dr, Loughborough LE11 3QF",
+	"WPL": "STEMLab, University Rd, Loughborough LE11 3TL",
+	"DAV": "Loughborough University Physics Department, Epinal Way, Loughborough LE11 3TU",
+	"CC": "James France, Margaret Keay Rd, Loughborough LE11 3TW",
+	"TW": "Wolfson School of Mechanical, Electrical and Manufacturing Engineering, Loughborough University, Wolfson Building, Ashby Rd, Loughborough LE11 3TU",
+	"N": "Haslegrave Building, University Rd, Loughborough LE11 3TP",
+	"U": "Brockington Building, Loughborough University, Margaret Keay Rd, Loughborough LE11 3TU",
+	"T": "Wolfson School of Mechanical, Electrical and Manufacturing Engineering, Loughborough University, Wolfson Building, Ashby Rd, Loughborough LE11 3TU",
 }
+
 BUILDING_CODES = tuple(sorted(BUILDING.keys(), key=len, reverse=True))
 
 def building(code: str) -> str:
