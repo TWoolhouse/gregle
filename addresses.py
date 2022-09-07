@@ -1,4 +1,5 @@
 BUILDING = {
+	"EHB": "EHB, Margaret Keay Rd, Loughborough LE11 3TU",
 	"MHL": "Martin Hall, Epinal Way, Loughborough LE11 3TS",
 	"MST": "Microsoft Teams",
 	"SCH": "Schofield Building, University Rd, Loughborough LE11 3TU",
