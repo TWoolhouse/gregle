@@ -97,6 +97,12 @@ def convet_raw(extract: Extractor) -> list[Lesson]:
 					weeks.append(extract.weeks[sem][int(grp) - 1])
 			weeks.sort()
 
+			lesson_type_name = (ltype if (ltype := lecture.get("type", LessonType.Lecture.name)) else LessonType.Lecture.name).split("/")[0].strip().title().replace(" ", "_")
+			try:
+				lesson_type = LessonType[lesson_type_name]
+			except KeyError:
+				lesson_type = LessonType.Lecture
+
 			day_delta = datetime.timedelta(days=DAYS.index(lecture["day"].lower()))
 			lessons.append(Lesson(
 				Module(
@@ -115,9 +121,7 @@ def convet_raw(extract: Extractor) -> list[Lesson]:
 				Weeks(
 					[wk + day_delta for wk in weeks]
 				),
-				LessonType[
-					(ltype if (ltype := lecture.get("type", LessonType.Lecture.name)) else LessonType.Lecture.name).split("/")[0].strip().title().replace(" ", "_")
-				],
+				lesson_type,
 			))
 		except Exception as e:
 			log.error(f"Parsing Extraction: \n\t{lecture}", exc_info=e)
