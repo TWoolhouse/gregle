@@ -28,6 +28,7 @@ class LessonType(enum.IntEnum):
 	Laboratory = 3
 	Tutorial = 4
 	Drop_In_Session = 5
+	Computer_Lab = 6
 
 @dataclass
 class Time:
