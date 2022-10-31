@@ -36,7 +36,12 @@ class Google:
 				event[2] = True
 			for eid, lesson, f in active_events.values():
 				if not f:
-					lesson.weeks.dates.remove(datetime.datetime.combine(self.week_start.date() + datetime.timedelta(days=lesson.time.day), lesson.time.start).date())
+					try:
+						date = datetime.datetime.combine(self.week_start.date() + datetime.timedelta(days=lesson.time.day), lesson.time.start).date()
+						lesson.weeks.dates.remove(date)
+					except ValueError as e:
+						log.warning(f"Trying to remove the week {date} from {lesson} yet it does not exist.")
+						continue
 					self.update(eid, lesson, "Expired")
 		return self
 
