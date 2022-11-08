@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup, Tag
 from requests_html import HTMLSession
 from datetime import datetime, date
 import json
+from dataclasses import dataclass
 from log import log
 
 RES = Path(__file__).parent / "res"
@@ -21,6 +22,10 @@ WEEK_DAYS = (
 	"Saturday",
 	"Sunday",
 )
+
+@dataclass
+class TagFake:
+	string: str
 
 class Extractor:
 	def __init__(self, query: bool=True) -> None:
@@ -57,11 +62,17 @@ class Extractor:
 
 	def _find_lectures(self):
 		table: Tag = self.soup.find("table", id="timetable_details")
-		lectures = {tag: m for tag in table.find_all("div", "tt_content") if (m := self.lesson(tag))}
+		lectures = {tag: m for tag in (*table.find_all("div", "tt_content"), *table.find_all("div", "tt_content_current")) if (m := self.lesson(tag))}
+		day = WEEK_DAYS[0]
 		for dayrow in table.find_all("tr", "tt_info_row"):
-			children: Iterator[Tag] = iter(dayrow.children)
-			if (day := next(children).string.strip().title()) not in WEEK_DAYS:
-				continue
+			children: Iterator[Tag] = iter(dayrow.contents)
+			try:
+				days = next(children)
+				if ("weekday_col" not in days["class"] and "weekday" not in days["class"]): raise AttributeError("Not a Weekday")
+				if (day := days.string.strip().title()) not in WEEK_DAYS:
+					continue
+			except AttributeError:
+				children = iter(dayrow.contents)
 			time = 9
 			for point in children:
 				try:
@@ -76,6 +87,11 @@ class Extractor:
 					lecture["time"] = str(int(time))
 					lecture["length"] = str(length)
 					time += length
+				else:
+					print(lecture)
+		for key, lecture in tuple(lectures.items()):
+			if (lecture.get("day", None) is None):
+				lectures.pop(key)
 		log.info(f"Found Lessons: {len(lectures)}")
 		return list(lectures.values())
 
@@ -89,8 +105,11 @@ class Extractor:
 	}
 	def lesson(self, lesson: Tag) -> dict[str, str] | Literal[False]:
 		try:
-			return {name: lesson.find(class_=f"tt_{cls}_row").string for name, cls in self.FIELDS.items()}
-		except AttributeError:
+			attrs = {name: lesson.find(class_=f"tt_{cls}_row") for name, cls in self.FIELDS.items()}
+			if attrs.get("room", None) is None:
+				attrs["room"] = TagFake("MST")
+			return {key: value.string for key, value in attrs.items()}
+		except AttributeError as err:
 			return False
 
 	TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
