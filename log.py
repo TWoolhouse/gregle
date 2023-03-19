@@ -51,6 +51,7 @@ class Handle(logging.FileHandler):
 		if err:
 			record.exc_info = err
 			self._trace_handle.emit(record)
+		print(msg)
 		return msg
 
 def create(name: str, fmt: str=None) -> Logger:
