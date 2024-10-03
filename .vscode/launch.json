@@ -5,7 +5,7 @@
 			"name": "Calendar Scraper",
 			"type": "python",
 			"request": "launch",
-			"program": "${workspaceFolder}/main.py",
+			"program": "${workspaceFolder}/gregle",
 			"console": "integratedTerminal",
 			"justMyCode": true
 		}
