@@ -1,7 +1,0 @@
-beautifulsoup4>=4.11.2
-requests-html>=0.10.0
-google-auth-oauthlib>=0.4.6
-google-auth-httplib2>=0.1.0
-google-api-python-client>=2.30.0
-tzdata>=2021.5
-lxml_html_clean>=0.2.2
