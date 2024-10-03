@@ -1,5 +1,6 @@
 res/**
 !res/README.md
+cache
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
