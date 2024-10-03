@@ -9,7 +9,7 @@ from .event import EventView
 from .service import API, Calendar
 
 
-def fetch_id(api: API, name: str) -> Calendar:
+def get_calendar(api: API, name: str) -> Calendar:
     page_token: str | None = None
     while True:
         log.info(f"Request: Calendars - {name}")
@@ -73,7 +73,7 @@ else:
         pass
 
 
-def process_change(api: API, calendar: Calendar, change: Diff[Event]) -> None:
+def process_diff(api: API, calendar: Calendar, change: Diff[Event]) -> None:
     match change:
         case ("create", e):
             post_create(api, calendar, EventView.from_event(e))
