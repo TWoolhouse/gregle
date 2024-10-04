@@ -26,3 +26,6 @@ def main() -> None:
         for change in gregle.lu.diff([gregle.lu.Events.from_event(e) for e in remote], local):
             pp(change)
             gregle.gcal.cal.process_diff(api, calendar, change)
+
+
+main()
