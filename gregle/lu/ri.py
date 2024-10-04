@@ -19,6 +19,7 @@ from selenium.webdriver.support.wait import WebDriverWait
 
 from .. import path as PATH
 from .. import tz
+from ..log import log
 from .event import EventGroup, EventRaw, GroupID
 
 type WebDriver = selenium.webdriver.Chrome
@@ -64,7 +65,7 @@ def events_from_week(driver: WebDriver, week: datetime.date) -> set[EventRaw]:
     weeks = WeekSelector.from_driver(driver)
     week_id_map = {wk[1]: wk[2] for wk in weeks.weeks}
 
-    print(f"WEEK: {week_start.isoformat()}")
+    log.info("Parsing LU Week: %s", week_start)
 
     events: set[EventRaw] = set()
 
@@ -95,6 +96,8 @@ def events_from_week(driver: WebDriver, week: datetime.date) -> set[EventRaw]:
                     )
                 )
 
+    log.info("Found %d LU events", len(events))
+
     return events
 
 
@@ -103,7 +106,7 @@ def event_from_node(node: WebElement, start: datetime.datetime) -> tuple[EventRa
         try:
             return node.find_element(By.CLASS_NAME, class_name).get_attribute("innerText")
         except selenium.common.NoSuchElementException as exc:
-            print(node.get_attribute("innerHTML"), exc)
+            log.exception("Failed to find element '.%s' on node %s", class_name, node, stack_info=True)
             return None
 
     def remove_ellipsis(string: str) -> str:
@@ -157,6 +160,7 @@ def driver_build() -> WebDriver:
 
 def navigate_to_timetable(driver: WebDriver, /, headless: bool) -> WebDriver:
     URL = "https://lucas.lboro.ac.uk/its_apx/f?p=student_timetable"
+    log.info("Navigating to live timetable: %s", URL)
     driver.get(URL)
     if headless:
         _navigate_to_timetable_auto(driver)
@@ -175,6 +179,7 @@ def navigate_to_timetable(driver: WebDriver, /, headless: bool) -> WebDriver:
 
 
 def _navigate_to_timetable_auto(driver: WebDriver):
+    # TODO: Automagically sign-in?
     raise NotImplementedError()
 
 
@@ -193,12 +198,14 @@ def navigate_to_src(driver: WebDriver, src: str) -> WebDriver:
 
 
 def iter_weeks_cache_load(driver: WebDriver, cache: Path) -> Iterator[tuple[WebDriver, datetime.date]]:
+    log.info("Parsing weeks from cache")
     for filename in cache.glob("*.html"):
         yield (navigate_to_src(driver, filename.read_text()), datetime.date.fromisoformat(filename.stem))
 
 
 def iter_weeks_cache_store(driver: WebDriver, cache: Path) -> Iterator[tuple[WebDriver, datetime.date]]:
     navigate_to_timetable(driver, headless=False)
+    log.info("Saving weeks to cache")
     for d, wk in navigate_iter_weeks(driver):
         (cache / f"{wk[2].isoformat()}.html").write_text(d.page_source)
         yield (d, wk[2])
@@ -246,4 +253,6 @@ def events_raw() -> tuple[set[EventRaw], tuple[datetime.date, datetime.date]]:
 
 def events() -> tuple[list[EventGroup], tuple[datetime.date, datetime.date]]:
     e, ds = events_raw()
-    return group_events(e), ds
+    es = group_events(e)
+    log.info("Total Events: %d", len(es))
+    return es, ds

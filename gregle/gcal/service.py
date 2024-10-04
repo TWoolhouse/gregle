@@ -28,7 +28,7 @@ def _scope_creds(scopes: list[str], token_file: str, creds_file: str):
                 return _scope_creds(scopes, token_file, creds_file)
         else:
             flow = InstalledAppFlow.from_client_secrets_file(creds_file, scopes)
-            log.error("Waiting for Authentication!")
+            log.info("Waiting for Authentication!")
             creds = flow.run_local_server(port=0)
 
         # Save the credentials for the next run
@@ -39,6 +39,7 @@ def _scope_creds(scopes: list[str], token_file: str, creds_file: str):
 
 
 def calendar() -> API:
+    log.info("Connecting to Calendar Service")
     creds = _scope_creds(
         [
             "https://www.googleapis.com/auth/calendar.readonly",

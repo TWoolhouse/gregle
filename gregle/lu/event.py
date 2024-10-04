@@ -107,5 +107,3 @@ class EventGroup(Event):
         )
 
         return cls(other.id(), event, list(other.occurrences()))
-
-    def degrade(self) -> list[EventRaw]: ...
