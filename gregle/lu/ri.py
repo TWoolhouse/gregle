@@ -60,19 +60,47 @@ class WeekSelector:
         self.selector._set_selected(week[0])  # noqa: SLF001
 
 
+def events_from_weekday(
+    nodes: list[WebElement],
+    day: datetime.date,
+    week_id_map: dict[int, datetime.date],
+) -> set[EventRaw]:
+    events: set[EventRaw] = set()
+
+    loc = -1  # Offset -1 as we pre increment
+    for node in nodes:
+        loc += 1
+        if "tt_info_cell" not in (node.get_attribute("class") or ""):
+            continue
+        dt = datetime.timedelta(hours=loc / 2)
+        day = datetime.datetime.combine(day, datetime.time(hour=9), tz.DEFAULT)
+        event, repeats = event_from_node(node, day + dt)
+        loc += (event.duration.total_seconds() / 60 / 60) * 2 - 1
+        events.add(event)
+        dt = datetime.timedelta(days=day.weekday(), hours=loc / 2)
+        for repeat_wk in repeats:
+            events.add(
+                event.with_date(
+                    (datetime.datetime.combine(week_id_map[repeat_wk], datetime.time(), tz.DEFAULT) + dt).date()
+                )
+            )
+
+    return events
+
+
 def events_from_week(driver: WebDriver, week: datetime.date) -> set[EventRaw]:
-    week_start = datetime.datetime.combine(week, datetime.time(hour=9), tz.DEFAULT)
     weeks = WeekSelector.from_driver(driver)
     week_id_map = {wk[1]: wk[2] for wk in weeks.weeks}
 
-    log.info("Parsing LU Week: %s", week_start)
+    log.info("Parsing LU Week: %s", week)
 
     events: set[EventRaw] = set()
 
     table = driver.find_element(By.ID, "timetable_details")
     weekday = -1
-    for row in table.find_elements(By.CLASS_NAME, "tt_info_row"):
-        nodes = list(row.find_elements(By.CSS_SELECTOR, ":scope > td"))
+    weekdays = iter(table.find_elements(By.CLASS_NAME, "tt_info_row"))
+    for row in weekdays:
+        nodes = row.find_elements(By.CSS_SELECTOR, ":scope > td")
 
         if "weekday_col" not in (nodes[0].get_attribute("class") or ""):
             continue
@@ -80,21 +108,15 @@ def events_from_week(driver: WebDriver, week: datetime.date) -> set[EventRaw]:
             continue
 
         weekday += 1
-        loc = -1  # Offset -1 as we pre increment
-        for node in nodes[1:]:
-            loc += 1
-            if "new_row_tt_info_cell" not in (node.get_attribute("class") or ""):
-                continue
-            dt = datetime.timedelta(days=weekday, hours=loc / 2)
-            event, repeats = event_from_node(node, week_start + dt)
-            loc += (event.duration.total_seconds() / 60 / 60) * 2 - 1
-            events.add(event)
-            for repeat_wk in repeats:
-                events.add(
-                    event.with_date(
-                        (datetime.datetime.combine(week_id_map[repeat_wk], datetime.time(), tz.DEFAULT) + dt).date()
-                    )
-                )
+
+        rows = int(nodes[0].get_attribute("rowspan") or "")
+
+        def create_events(nodes: list[WebElement]) -> set[EventRaw]:
+            return events_from_weekday(nodes, week + datetime.timedelta(days=weekday), week_id_map)
+
+        events.update(create_events(nodes[1:]))
+        for _ in range(rows - 1):
+            events.update(create_events(next(weekdays).find_elements(By.CSS_SELECTOR, ":scope > td")))
 
     log.info("Found %d LU events", len(events))
 
@@ -154,7 +176,7 @@ def extract_repeated_weeks(weeks: str) -> list[int]:
 
 def driver_build() -> WebDriver:
     driver = selenium.webdriver.Chrome()
-    driver.implicitly_wait(5)
+    driver.implicitly_wait(1)
     return driver
 
 
