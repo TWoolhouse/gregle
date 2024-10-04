@@ -95,7 +95,9 @@ class EventGroup(Event):
 
     @classmethod
     def from_event(cls, other: Event) -> Self:
-        module_codes, module_name, rooms, lecturers, content_type = other.description().strip().split("\n")
+        data = other.description().strip().split("\n")
+        data += [""] * 5
+        module_codes, module_name, rooms, lecturers, content_type = data[:5]
         event = EventRaw(
             tuple(sorted(module_codes.split(", "))),
             module_name,
