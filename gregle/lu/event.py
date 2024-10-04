@@ -99,10 +99,10 @@ class EventGroup(Event):
         data += [""] * 5
         module_codes, module_name, rooms, lecturers, content_type = data[:5]
         event = EventRaw(
-            tuple(sorted(module_codes.split(", "))),
+            tuple(sorted(filter(None, module_codes.split(", ")))),
             module_name,
-            tuple(sorted(rooms.split(", "))),
-            tuple(sorted(lecturers.split(", "))),
+            tuple(sorted(filter(None, rooms.split(", ")))),
+            tuple(sorted(filter(None, lecturers.split(", ")))),
             content_type,
             other.time_start(),
             other.time_delta(),
