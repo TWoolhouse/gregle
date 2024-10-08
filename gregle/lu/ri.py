@@ -17,8 +17,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.select import Select
 from selenium.webdriver.support.wait import WebDriverWait
 
+from .. import cache, tz
 from .. import path as PATH
-from .. import tz
 from ..log import log
 from .event import EventGroup, EventRaw, GroupID
 
@@ -273,6 +273,7 @@ def events_raw() -> tuple[set[EventRaw], tuple[datetime.date, datetime.date]]:
     )
 
 
+@cache.file(PATH.CACHE / "events.pkl", datetime.timedelta(minutes=30))
 def events() -> tuple[list[EventGroup], tuple[datetime.date, datetime.date]]:
     e, ds = events_raw()
     es = group_events(e)
