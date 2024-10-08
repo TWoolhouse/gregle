@@ -63,7 +63,7 @@ def main() -> None:
                 pp(change)
                 gregle.gcal.cal.process_diff(api, calendar, change)
     except Exception as e:
-        gregle.log.exception("Failed to run main", exc_info=e)
+        gregle.log.fatal("Unhandled exception", exc_info=e)
         raise
 
 
