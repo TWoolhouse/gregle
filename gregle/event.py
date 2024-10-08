@@ -26,8 +26,8 @@ class Event(abc.ABC):
 
 
 type Create[E: Event] = E
-type Delete = str | None
+type Delete[E: Event] = E
 type Update[E: Event] = tuple[E, E]
 type Diff[E: Event] = (
-    tuple[Literal["create"], Create[E]] | tuple[Literal["delete"], Delete] | tuple[Literal["update"], Update[E]]
+    tuple[Literal["create"], Create[E]] | tuple[Literal["delete"], Delete[E]] | tuple[Literal["update"], Update[E]]
 )

@@ -1,5 +1,6 @@
 import datetime
 import logging.config
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from pprint import pp
 
@@ -57,6 +58,23 @@ def events_local() -> tuple[list[gregle.lu.Events], tuple[datetime.date, datetim
     return events, dates
 
 
+def gcal_to_lu(
+    api: gregle.gcal.service.API,
+    calendar: gregle.gcal.service.Calendar,
+    events: Iterable[gregle.gcal.Event],
+) -> Iterator[gregle.lu.Events]:
+    for event in events:
+        try:
+            yield gregle.lu.Events.from_event(event)
+        except Exception as exc:
+            gregle.log.error("Failed to convert event %s", event, exc_info=exc)
+            if eid := event.id():
+                gregle.log.error("Deleting event %s", eid)
+                gregle.gcal.cal.post_delete(api, calendar, eid)
+            else:
+                raise ValueError("Event without ID") from exc
+
+
 def main() -> None:
     log_config()
     try:
@@ -64,7 +82,7 @@ def main() -> None:
         with gregle.gcal.service.calendar() as api:
             calendar = gregle.gcal.cal.get_calendar(api, "Timetable")
             remote = events_remote(api, calendar, date_range)
-            for change in gregle.lu.diff([gregle.lu.Events.from_event(e) for e in remote], local):
+            for change in gregle.lu.diff(list(gcal_to_lu(api, calendar, remote)), local):
                 pp(change)
                 gregle.gcal.cal.process_diff(api, calendar, change)
     except Exception as e:

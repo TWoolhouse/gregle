@@ -77,7 +77,8 @@ def process_diff(api: API, calendar: Calendar, change: Diff[Event]) -> None:
     match change:
         case ("create", e):
             post_create(api, calendar, EventView.from_event(e))
-        case ("delete", e_id):
+        case ("delete", e):
+            e_id = e.id()
             if e_id is None:
                 return
             post_delete(api, calendar, e_id)

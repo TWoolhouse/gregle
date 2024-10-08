@@ -19,7 +19,7 @@ def changes(a: Iterable[EventGroup], b: Iterable[EventGroup]) -> Iterator[Diff[E
                 if _is_diff(lhs, rhs):
                     yield ("update", (lhs, rhs))
             case [("a", e)]:
-                yield ("delete", e.id())
+                yield ("delete", e)
             case [("b", e)]:
                 yield ("create", e)
             case x:
