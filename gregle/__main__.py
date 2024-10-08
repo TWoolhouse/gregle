@@ -1,11 +1,15 @@
 import datetime
 import logging.config
+from pathlib import Path
 from pprint import pp
 
 import gregle
 
 
 def log_config() -> None:
+    LOG = (Path(__name__).parent / "log").resolve()
+    LOG.mkdir(exist_ok=True)
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     logging.config.dictConfig(
         {
             "version": 1,
@@ -25,7 +29,8 @@ def log_config() -> None:
                 },
                 "file": {
                     "class": "logging.FileHandler",
-                    "filename": "gregle.log",
+                    "filename": f"{LOG}/gregle.{now}.log",
+                    "mode": "w",
                     "formatter": "verbose",
                 },
             },
