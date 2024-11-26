@@ -63,16 +63,22 @@ def gcal_to_lu(
     calendar: gregle.gcal.service.Calendar,
     events: Iterable[gregle.gcal.Event],
 ) -> Iterator[gregle.lu.Events]:
+    failed: list[gregle.gcal.Event] = []
     for event in events:
         try:
             yield gregle.lu.Events.from_event(event)
         except Exception as exc:
             gregle.log.error("Failed to convert event %s", event, exc_info=exc)
-            if eid := event.id():
-                gregle.log.error("Deleting event %s", eid)
+            failed.append(event)
+    for event in failed:
+        gregle.log.info("Deleting corrupt event %s", event)
+        if eid := event.id():
+            try:
                 gregle.gcal.cal.post_delete(api, calendar, eid)
-            else:
-                raise ValueError("Event without ID") from exc
+            except Exception as exc:
+                gregle.log.error("Failed to delete event %s", event, exc_info=exc)
+        else:
+            gregle.log.error("Event %s has no ID", event)
 
 
 def main() -> None:
