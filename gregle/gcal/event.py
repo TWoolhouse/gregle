@@ -1,7 +1,8 @@
+import contextlib
 import datetime
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable, Self
-
+from typing import Any, Self
 from zoneinfo import ZoneInfo
 
 from gregle import tz
@@ -69,31 +70,31 @@ class EventView(Event):
         start = other.time_start().time()
         occurrences = other.occurrences()
 
-        return cls(
-            {
-                "id": other.id(),
-                "summary": other.title(),
-                "description": other.description(),
-                "location": other.address(),
-                "start": {
-                    "dateTime": other.time_start().strftime(ft.RFC3339_DATETIME_LOCAL),
-                    "timeZone": tz,
-                },
-                "end": {
-                    "dateTime": (other.time_start() + other.time_delta()).strftime(ft.RFC3339_DATETIME_LOCAL),
-                    "timeZone": tz,
-                },
-                "recurrence": [
-                    f"RDATE;TZID={tz}:"
-                    + ",".join(
-                        datetime.datetime.combine(d, start, ZoneInfo(tz)).strftime(ft.RFC5545_DATETIME_LOCAL)
-                        for d in occurrences
-                    )
-                ]
-                if occurrences
-                else [],
-            }
-        )
+        obj = {
+            "id": other.id(),
+            "summary": other.title(),
+            "description": other.description(),
+            "start": {
+                "dateTime": other.time_start().strftime(ft.RFC3339_DATETIME_LOCAL),
+                "timeZone": tz,
+            },
+            "end": {
+                "dateTime": (other.time_start() + other.time_delta()).strftime(ft.RFC3339_DATETIME_LOCAL),
+                "timeZone": tz,
+            },
+            "recurrence": [
+                f"RDATE;TZID={tz}:"
+                + ",".join(
+                    datetime.datetime.combine(d, start, ZoneInfo(tz)).strftime(ft.RFC5545_DATETIME_LOCAL)
+                    for d in occurrences
+                )
+            ]
+            if occurrences
+            else [],
+        }
+        with contextlib.suppress(KeyError):
+            obj["location"] = other.address()
+        return cls(obj)
 
 
 Event.register(EventView)

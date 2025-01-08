@@ -1,12 +1,13 @@
 import base64
+import contextlib
 import datetime
 import re
 import time
-from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Generator, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, Self
+from pprint import pp
+from typing import Self
 
 import selenium
 import selenium.common
@@ -20,26 +21,45 @@ from selenium.webdriver.support.wait import WebDriverWait
 from .. import cache, tz
 from .. import path as PATH
 from ..log import log
-from .event import EventGroup, EventRaw, GroupID
+from .event import EventInstance, EventSchedule, GroupID
 
 type WebDriver = selenium.webdriver.Chrome
 
-RE_WEEK = re.compile(r"Sem\s*\d+\s*-\s*Wk\s*(\d+)\s*\(starting\s*(\d{2}-\w{3}-\d{4})\)", re.I)
+RE_WEEK = re.compile(r"Sem\s*(\d+)\s*-\s*Wk\s*(\d+)\s*\(starting\s*(\d{2}-\w{3}-\d{4})\)", re.I)
+"""Regex to match a week name in the timetable's selector dropdown
 
+- Semester ID
+- Week ID
+- Week Start Date"""
 
-type Week = tuple[WebElement, int, datetime.date]
+type SemWk = tuple[int, int]
+"""Semester and Week ID"""
+type SemWks = set[SemWk]
+"""Set of weeks that an event repeats on"""
 
 
 @dataclass
-class WeekSelector:
+class Week:
+    element: WebElement
+    semester: int
+    wk: int
+    date: datetime.date
+
+
+type WeekMap = dict[SemWk, Week]
+
+
+@dataclass
+class PageSelector:
     selector: Select
     weeks: list[Week]
+    semesters: dict[int, WebElement]
 
     @property
     def current(self) -> Week:
         chosen = self.selector.first_selected_option
         for week in self.weeks:
-            if week[0] == chosen:
+            if week.element == chosen:
                 return week
         raise ValueError("The currently selected item is not a valid week")
 
@@ -47,87 +67,47 @@ class WeekSelector:
     def from_driver(cls, driver: WebDriver) -> Self:
         selector = Select(driver.find_element(By.ID, "P2_MY_PERIOD"))
 
-        weeks = []
+        weeks: list[Week] = []
+        semesters: dict[int, WebElement] = {}
         for item in selector.options:
             name = (item.get_attribute("innerText") or "").lower()
-            if (m := RE_WEEK.match(name)) is None:
-                continue
-            date = datetime.datetime.strptime(m[2], "%d-%b-%Y").date()
-            weeks.append((item, int(m[1]), date))
-        return cls(selector, weeks)
+            if (m := RE_WEEK.match(name)) is not None:
+                date = datetime.datetime.strptime(m[3], "%d-%b-%Y").date()
+                weeks.append(Week(item, int(m[1]), int(m[2]), date))
+            elif name.startswith("semester"):
+                semesters[int(name.split()[-1])] = item
+        return cls(selector, weeks, semesters)
 
-    def set(self, week: Week) -> None:
-        self.selector._set_selected(week[0])  # noqa: SLF001
+    def set(self, opt: Week | WebElement) -> None:
+        self.selector._set_selected(opt if isinstance(opt, WebElement) else opt.element)  # noqa: SLF001
+
+    def map(self) -> WeekMap:
+        return {(week.semester, week.wk): week for week in self.weeks}
 
 
-def events_from_weekday(
-    nodes: list[WebElement],
-    day: datetime.date,
-    week_id_map: dict[int, datetime.date],
-) -> set[EventRaw]:
-    events: set[EventRaw] = set()
-
-    loc = -1  # Offset -1 as we pre increment
-    for node in nodes:
-        loc += 1
-        if "tt_info_cell" not in (node.get_attribute("class") or ""):
+def extract_repeated_weeks(weeks: str) -> Iterator[SemWk]:
+    PREFIX = "weeks:"
+    weeks = weeks.lstrip(PREFIX).lstrip()
+    for sem_data in weeks.split("sem"):
+        sem_data = sem_data.strip()
+        if not sem_data:
             continue
-        dt = datetime.timedelta(hours=loc / 2)
-        day = datetime.datetime.combine(day, datetime.time(hour=9), tz.DEFAULT)
-        event, repeats = event_from_node(node, day + dt)
-        loc += (event.duration.total_seconds() / 60 / 60) * 2 - 1
-        events.add(event)
-        dt = datetime.timedelta(days=day.weekday(), hours=loc / 2)
-        for repeat_wk in repeats:
-            events.add(
-                event.with_date(
-                    (datetime.datetime.combine(week_id_map[repeat_wk], datetime.time(), tz.DEFAULT) + dt).date()
-                )
-            )
-
-    return events
+        sem_name, weeks = map(str.strip, sem_data.split(":"))
+        sem = int(sem_name)
+        for rng in weeks.split(","):
+            rng = rng.strip()
+            if "-" in rng:
+                lhs, rhs = (int(s.strip()) for s in rng.split("-"))
+                yield from ((sem, wk) for wk in range(lhs, rhs + 1))
+            else:
+                yield (sem, int(rng))
 
 
-def events_from_week(driver: WebDriver, week: datetime.date) -> set[EventRaw]:
-    weeks = WeekSelector.from_driver(driver)
-    week_id_map = {wk[1]: wk[2] for wk in weeks.weeks}
-
-    log.info("Parsing LU Week: %s", week)
-
-    events: set[EventRaw] = set()
-
-    table = driver.find_element(By.ID, "timetable_details")
-    weekday = -1
-    weekdays = iter(table.find_elements(By.CLASS_NAME, "tt_info_row"))
-    for row in weekdays:
-        nodes = row.find_elements(By.CSS_SELECTOR, ":scope > td")
-
-        if "weekday_col" not in (nodes[0].get_attribute("class") or ""):
-            continue
-        if "on demand" in (nodes[0].get_attribute("innerHTML") or "").lower():
-            continue
-
-        weekday += 1
-
-        rows = int(nodes[0].get_attribute("rowspan") or "")
-
-        def create_events(nodes: list[WebElement]) -> set[EventRaw]:
-            return events_from_weekday(nodes, week + datetime.timedelta(days=weekday), week_id_map)
-
-        events.update(create_events(nodes[1:]))
-        for _ in range(rows - 1):
-            events.update(create_events(next(weekdays).find_elements(By.CSS_SELECTOR, ":scope > td")))
-
-    log.info("Found %d LU events", len(events))
-
-    return events
-
-
-def event_from_node(node: WebElement, start: datetime.datetime) -> tuple[EventRaw, list[int]]:
+def event_from_node(node: WebElement, start: datetime.datetime, weeks: WeekMap) -> EventSchedule:
     def get_content_of(class_name: str) -> str | None:
         try:
             return node.find_element(By.CLASS_NAME, class_name).get_attribute("innerText")
-        except selenium.common.NoSuchElementException as exc:
+        except selenium.common.NoSuchElementException:
             log.exception("Failed to find element '.%s' on node %s", class_name, node, stack_info=True)
             return None
 
@@ -144,40 +124,101 @@ def event_from_node(node: WebElement, start: datetime.datetime) -> tuple[EventRa
     module_codes = split(get_content_of("tt_module_id_row") or "")
     module_name = remove_ellipsis(get_content_of("tt_module_name_row") or "")
     lecturers = split(get_content_of("tt_lect_row") or "")
-    rooms = split(get_content_of("tt_room_row") or "UNKNOWN")
+    rooms = split(get_content_of("tt_room_row") or "")
     content_type = get_content_of("tt_modtype_row")
 
-    return EventRaw(
+    event = EventInstance(
         module_codes,
         module_name or "",
         rooms,
         lecturers,
         content_type or "",
-        start,
+        start.time(),
         datetime.timedelta(hours=duration),
-    ), extract_repeated_weeks((get_content_of("tt_weeks_row") or "").lower())
+    )
+    instances = extract_repeated_weeks((get_content_of("tt_weeks_row") or "").lower())
+
+    return EventSchedule(
+        None, event, [weeks[semwk].date + datetime.timedelta(days=start.weekday()) for semwk in sorted(instances)]
+    )
 
 
-def extract_repeated_weeks(weeks: str) -> list[int]:
-    PREFIX = "weeks:"
-    weeks = weeks.lstrip(PREFIX).lstrip()
-    ranges = weeks.split(":", maxsplit=1)[1].split(",")
+def events_from_weekday(
+    nodes: list[WebElement],
+    weekday: int,
+    weeks: WeekMap,
+) -> list[EventSchedule]:
+    events: list[EventSchedule] = []
 
-    out = []
-    for rng in ranges:
-        rng = rng.strip()
-        if "-" in rng:
-            lhs, rhs = (int(s.strip()) for s in rng.split("-"))
-            out.extend(range(lhs, rhs + 1))
-        else:
-            out.append(int(rng))
-    return out
+    loc = -1  # Offset -1 as we pre increment
+    for node in nodes:
+        loc += 1
+        if "tt_info_cell" not in (node.get_attribute("class") or ""):
+            continue
+        dt = datetime.timedelta(days=weekday, hours=loc / 2)
+        # 2000-01-03 is a Monday, so we can add the weekday to get the correct day
+        day = datetime.datetime.combine(datetime.date(2000, 1, 3), datetime.time(hour=9), tz.DEFAULT)
+        event = event_from_node(node, day + dt, weeks)
+        loc += (event.instance.duration.total_seconds() / 60 / 60) * 2 - 1
+        events.append(event)
+
+    return events
+
+
+def events_from_semester(driver: WebDriver, semester: int) -> list[EventSchedule]:
+    pages = PageSelector.from_driver(driver)
+    weeks = pages.map()
+
+    log.info("Parsing LU Semester: %s", semester)
+
+    events: list[EventSchedule] = []
+    table = driver.find_element(By.ID, "timetable_details")
+    weekday = -1
+    with wait_timeout(driver, 0):
+        weekdays = iter(table.find_elements(By.CLASS_NAME, "tt_info_row"))
+        for row in weekdays:
+            nodes = row.find_elements(By.CSS_SELECTOR, ":scope > td")
+
+            if "weekday_col" not in (nodes[0].get_attribute("class") or ""):
+                continue
+            if "on demand" in (nodes[0].get_attribute("innerHTML") or "").lower():
+                continue
+            weekday += 1
+
+            rows = int(nodes[0].get_attribute("rowspan") or "")
+
+            events.extend(events_from_weekday(nodes[1:], weekday, weeks))
+            for _ in range(rows - 1):
+                events.extend(
+                    events_from_weekday(
+                        next(weekdays).find_elements(By.CSS_SELECTOR, ":scope > td"),
+                        weekday,
+                        weeks,
+                    )
+                )
+
+    log.info("Found %d unique LU events and %d total events", len(events), sum(len(e.on_dates) for e in events))
+
+    return events
 
 
 def driver_build() -> WebDriver:
     driver = selenium.webdriver.Chrome()
     driver.implicitly_wait(1)
     return driver
+
+
+@contextlib.contextmanager
+def wait_timeout(driver: WebDriver, timeout: float = 0) -> Generator[None, None, None]:
+    """Temporarily change the implicit wait timeout of a WebDriver.
+
+    Restores the original timeout after the context manager exits."""
+    old = driver.timeouts.implicit_wait
+    try:
+        driver.implicitly_wait(timeout)
+        yield
+    finally:
+        driver.implicitly_wait(old)
 
 
 def navigate_to_timetable(driver: WebDriver, /, headless: bool) -> WebDriver:
@@ -205,77 +246,55 @@ def _navigate_to_timetable_auto(driver: WebDriver):
     raise NotImplementedError()
 
 
-def navigate_iter_weeks(driver: WebDriver) -> Iterator[tuple[WebDriver, Week]]:
-    wksel = WeekSelector.from_driver(driver)
-    for week in wksel.weeks:
-        wksel.set(week)
-        time.sleep(1)
-        yield (driver, week)
-
-
 def navigate_to_src(driver: WebDriver, src: str) -> WebDriver:
     html = base64.b64encode(src.encode("utf-8")).decode()
     driver.get("data:text/html;base64," + html)
     return driver
 
 
-def iter_weeks_cache_load(driver: WebDriver, cache: Path) -> Iterator[tuple[WebDriver, datetime.date]]:
-    log.info("Parsing weeks from cache")
-    for filename in cache.glob("*.html"):
-        yield (navigate_to_src(driver, filename.read_text()), datetime.date.fromisoformat(filename.stem))
+def iter_semesters(driver: WebDriver, cache_dir: Path) -> Iterator[tuple[WebDriver, int]]:
+    f_cache_info = cache_dir / "meta.cache"
+    if cache.stale(f_cache_info, datetime.timedelta(hours=1)):
+        navigate_to_timetable(driver, headless=False)
+        cache_dir.mkdir(exist_ok=True, parents=True)
+        f_cache_info.write_text(datetime.datetime.now(datetime.timezone.utc).isoformat())
+        pages = PageSelector.from_driver(driver)
+        log.info("Saving weeks to cache")
+        for semester, element in pages.semesters.items():
+            pages.set(element)
+            time.sleep(1)
+            (cache_dir / f"{semester}.html").write_text(driver.page_source)
+            yield (driver, semester)
+    else:
+        log.info("Parsing weeks from cache")
+        for filename in cache_dir.glob("*.html"):
+            yield (navigate_to_src(driver, filename.read_text()), int(filename.stem))
 
 
-def iter_weeks_cache_store(driver: WebDriver, cache: Path) -> Iterator[tuple[WebDriver, datetime.date]]:
-    navigate_to_timetable(driver, headless=False)
-    log.info("Saving weeks to cache")
-    for d, wk in navigate_iter_weeks(driver):
-        (cache / f"{wk[2].isoformat()}.html").write_text(d.page_source)
-        yield (d, wk[2])
+def get_events() -> list[EventSchedule]:
+    events: list[EventSchedule] = []
+    for driver, semester in iter_semesters(driver_build(), PATH.CACHE / "semester"):
+        log.debug("ITER SEM %d", semester)
+        events.extend(events_from_semester(driver, semester))
+    return events
 
 
-def iter_weeks(driver: WebDriver, cache: Path) -> Iterator[tuple[WebDriver, datetime.date]]:
-    f_cache_info = cache / "meta.cache"
-    if (
-        f_cache_info.exists()
-        and (time.time() - f_cache_info.stat().st_mtime) < datetime.timedelta(minutes=30).total_seconds()
-    ):
-        return iter_weeks_cache_load(driver, cache)
-
-    f_cache_info.write_text(datetime.datetime.now(datetime.timezone.utc).isoformat())
-    return iter_weeks_cache_store(driver, cache)
-
-
-def group_events(events: Iterable[EventRaw]) -> list[EventGroup]:
-    table: dict[GroupID, set[EventRaw]] = defaultdict(set)
+def dedupe_events(events: Iterable[EventSchedule]) -> list[EventSchedule]:
+    tbl: dict[GroupID, tuple[EventInstance, set[datetime.date]]] = {}
 
     for event in events:
-        table[event.group()].add(event)
+        group = event.instance.group()
+        if group in tbl:
+            tbl[group][1].update(event.on_dates)
+        else:
+            tbl[group] = (event.instance, set(event.on_dates))
 
-    groups = []
-    for events in table.values():
-        events = sorted(events, key=lambda event: event.start)
-        groups.append(EventGroup(None, events[0], [event.start.date() for event in events[1:]]))
-
-    return groups
-
-
-def events_raw() -> tuple[set[EventRaw], tuple[datetime.date, datetime.date]]:
-    driver = driver_build()
-    events: set[EventRaw] = set()
-    weeks: list[datetime.date] = []
-    for d, wk in iter_weeks(driver, PATH.CACHE):
-        weeks.append(wk)
-        events.update(events_from_week(d, wk))
-
-    return events, (
-        min(weeks),
-        (datetime.datetime.combine(max(weeks), datetime.time(9)) + datetime.timedelta(weeks=1)).date(),
-    )
+    return [EventSchedule(None, instance, sorted(dates)) for instance, dates in tbl.values()]
 
 
-@cache.file(PATH.CACHE / "events.pkl", datetime.timedelta(minutes=30))
-def events() -> tuple[list[EventGroup], tuple[datetime.date, datetime.date]]:
-    e, ds = events_raw()
-    es = group_events(e)
+@cache.file(PATH.CACHE / "events.pkl", datetime.timedelta(minutes=60))
+def events() -> list[EventSchedule]:
+    es = get_events()
+    es = dedupe_events(es)
     log.info("Total Events: %d", len(es))
-    return es, ds
+    return es

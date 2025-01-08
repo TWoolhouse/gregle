@@ -1,5 +1,6 @@
 import abc
 import datetime
+import itertools
 from typing import Iterable, Literal, Self
 
 
@@ -31,3 +32,8 @@ type Update[E: Event] = tuple[E, E]
 type Diff[E: Event] = (
     tuple[Literal["create"], Create[E]] | tuple[Literal["delete"], Delete[E]] | tuple[Literal["update"], Update[E]]
 )
+
+
+def datespan(events: Iterable[Event]) -> tuple[datetime.date, datetime.date]:
+    dates = {date for event in events for date in itertools.chain((event.time_start().date(),), event.occurrences())}
+    return min(dates), max(dates) + datetime.timedelta(days=1)

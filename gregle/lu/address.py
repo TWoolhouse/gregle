@@ -1,5 +1,4 @@
 BUILDING = {
-    "UNKNOWN": "",
     "DAV": "Loughborough University Physics Department, Epinal Way, Loughborough LE11 3TU",
     "EHB": "EHB, Margaret Keay Rd, Loughborough LE11 3TU",
     "LDS": "Loughborough Design School, Loughborough University, Loughborough LE11 3TU",

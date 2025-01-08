@@ -3,15 +3,15 @@ from collections.abc import Iterable, Iterator
 from typing import Literal
 
 from ..event import Diff
-from .event import EventGroup, GroupID
+from .event import EventSchedule, GroupID
 
 
-def changes(a: Iterable[EventGroup], b: Iterable[EventGroup]) -> Iterator[Diff[EventGroup]]:
-    tbl: dict[GroupID, list[tuple[Literal["a", "b"], EventGroup]]] = defaultdict(list)
+def changes(a: Iterable[EventSchedule], b: Iterable[EventSchedule]) -> Iterator[Diff[EventSchedule]]:
+    tbl: dict[GroupID, list[tuple[Literal["a", "b"], EventSchedule]]] = defaultdict(list)
     for e in a:
-        tbl[e.first.group()].append(("a", e))
+        tbl[e.instance.group()].append(("a", e))
     for e in b:
-        tbl[e.first.group()].append(("b", e))
+        tbl[e.instance.group()].append(("b", e))
 
     for vals in tbl.values():
         match vals:
@@ -26,5 +26,5 @@ def changes(a: Iterable[EventGroup], b: Iterable[EventGroup]) -> Iterator[Diff[E
                 raise ValueError(x)
 
 
-def _is_diff(a: EventGroup, b: EventGroup) -> bool:
-    return a.on_dates != b.on_dates or a.first != b.first
+def _is_diff(a: EventSchedule, b: EventSchedule) -> bool:
+    return a.on_dates != b.on_dates or a.instance != b.instance

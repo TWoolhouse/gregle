@@ -3,13 +3,13 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Self
 
+from gregle import tz
 from gregle.lu.address import address as address_of_room
 
 from ..event import Event
 
-type Slot = tuple[int, datetime.time, datetime.timedelta]
-"""ID unique a slot of time within a week.
-- Weekday
+type Slot = tuple[datetime.time, datetime.timedelta]
+"""Unique ID of a time slot within a week.
 - Start time
 - Duration
 """
@@ -25,17 +25,17 @@ type GroupID = tuple[Slot, tuple[str, ...], tuple[str, ...], tuple[str, ...], st
 
 
 @dataclass(frozen=True, unsafe_hash=True, slots=True)
-class EventRaw:
+class EventInstance:
     module_codes: tuple[str, ...]
     module_name: str
     rooms: tuple[str, ...]
     lecturers: tuple[str, ...]
     content_type: str
-    start: datetime.datetime
+    start: datetime.time
     duration: datetime.timedelta
 
     def slot(self) -> Slot:
-        return (self.start.weekday(), self.start.time(), self.duration)
+        return (self.start, self.duration)
 
     def group(self) -> GroupID:
         return (
@@ -46,66 +46,63 @@ class EventRaw:
             self.content_type,
         )
 
-    def with_date(self, date: datetime.date) -> Self:
-        return self.__class__(
-            self.module_codes,
-            self.module_name,
-            self.rooms,
-            self.lecturers,
-            self.content_type,
-            datetime.datetime.combine(date, self.start.time(), self.start.tzinfo),
-            self.duration,
-        )
-
 
 @dataclass(slots=True)
-class EventGroup(Event):
+class EventSchedule(Event):
     _id: str | None
-    first: EventRaw
+    instance: EventInstance
     on_dates: list[datetime.date]
 
     def id(self) -> str | None:
         return self._id
 
     def title(self) -> str:
-        return f"{self.first.module_name} - {".".join(self.first.module_codes)}"
+        return f"{self.instance.module_name} - {".".join(self.instance.module_codes)}"
 
     def description(self) -> str:
         return "\n".join(
             (
-                ", ".join(self.first.module_codes),
-                self.first.module_name,
-                ", ".join(self.first.rooms),
-                ", ".join(self.first.lecturers),
-                self.first.content_type,
+                ", ".join(self.instance.module_codes),
+                self.instance.module_name,
+                ", ".join(self.instance.rooms),
+                ", ".join(self.instance.lecturers),
+                self.instance.content_type,
             )
         )
 
     def address(self) -> str:
-        return address_of_room(self.first.rooms[0])
+        exception: KeyError | None = None
+        for room in self.instance.rooms:
+            try:
+                return address_of_room(room)
+            except KeyError as exc:
+                exception = exc
+                continue
+        raise KeyError("No address found for any room") from exception
 
     def time_start(self) -> datetime.datetime:
-        return self.first.start
+        return datetime.datetime.combine(self.on_dates[0], self.instance.start, tz.DEFAULT)
 
     def time_delta(self) -> datetime.timedelta:
-        return self.first.duration
+        return self.instance.duration
 
     def occurrences(self) -> Iterable[datetime.date]:
-        return self.on_dates
+        return self.on_dates[1:]
 
     @classmethod
     def from_event(cls, other: Event) -> Self:
         data = other.description().strip().split("\n")
         data += [""] * 5
         module_codes, module_name, rooms, lecturers, content_type = data[:5]
-        event = EventRaw(
+        start = other.time_start().astimezone(tz.DEFAULT)
+        event = EventInstance(
             tuple(sorted(filter(None, module_codes.split(", ")))),
             module_name,
             tuple(sorted(filter(None, rooms.split(", ")))),
             tuple(sorted(filter(None, lecturers.split(", ")))),
             content_type,
-            other.time_start(),
+            start.time(),
             other.time_delta(),
         )
 
-        return cls(other.id(), event, list(other.occurrences()))
+        return cls(other.id(), event, [start.date()] + list(other.occurrences()))

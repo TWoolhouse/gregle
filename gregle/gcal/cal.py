@@ -43,44 +43,37 @@ def get_events(api: API, calendar_id: Calendar, start: datetime.date, end: datet
             break
 
 
-DRY_RUN: bool = False
-
-if not DRY_RUN:
-
-    def post_create(api: API, calendar: Calendar, event: EventView) -> str:
-        eid = api.events().insert(calendarId=calendar, body=event.raw).execute()["id"]
-        event.raw["id"] = eid
-        return eid
-
-    def post_update(api: API, calendar: Calendar, event_from: Event, event_to: EventView) -> None:
-        if (eid := event_from.id()) is None:
-            return
-        event_to.raw["id"] = eid
-        api.events().update(calendarId=calendar, eventId=eid, body=event_to.raw).execute()
-
-    def post_delete(api: API, calendar: Calendar, event_id: str) -> None:
-        api.events().delete(calendarId=calendar, eventId=event_id).execute()
-
-else:
-
-    def post_create(api: API, calendar: Calendar, event: EventView) -> str:
-        return "<ID>"
-
-    def post_update(api: API, calendar: Calendar, event_from: Event, event_to: EventView) -> None:
-        pass
-
-    def post_delete(api: API, calendar: Calendar, event_id: str) -> None:
-        pass
+def post_create(api: API, calendar: Calendar, event: EventView, *, dry_run: bool) -> str:
+    if dry_run:
+        return event.id() or "dry-run"
+    eid = api.events().insert(calendarId=calendar, body=event.raw).execute()["id"]
+    event.raw["id"] = eid
+    return eid
 
 
-def process_diff(api: API, calendar: Calendar, change: Diff[Event]) -> None:
+def post_update(api: API, calendar: Calendar, event_from: Event, event_to: EventView, *, dry_run: bool) -> None:
+    if (eid := event_from.id()) is None:
+        return
+    event_to.raw["id"] = eid
+    if dry_run:
+        return
+    api.events().update(calendarId=calendar, eventId=eid, body=event_to.raw).execute()
+
+
+def post_delete(api: API, calendar: Calendar, event_id: str, *, dry_run: bool) -> None:
+    if dry_run:
+        return
+    api.events().delete(calendarId=calendar, eventId=event_id).execute()
+
+
+def process_diff(api: API, calendar: Calendar, change: Diff[Event], *, dry_run: bool) -> None:
     match change:
         case ("create", e):
-            post_create(api, calendar, EventView.from_event(e))
+            post_create(api, calendar, EventView.from_event(e), dry_run=dry_run)
         case ("delete", e):
             e_id = e.id()
             if e_id is None:
                 return
-            post_delete(api, calendar, e_id)
+            post_delete(api, calendar, e_id, dry_run=dry_run)
         case ("update", (e_from, e_to)):
-            post_update(api, calendar, e_from, EventView.from_event(e_to))
+            post_update(api, calendar, e_from, EventView.from_event(e_to), dry_run=dry_run)

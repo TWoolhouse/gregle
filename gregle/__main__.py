@@ -1,3 +1,4 @@
+import argparse
 import datetime
 import logging.config
 from collections.abc import Iterable, Iterator
@@ -7,9 +8,10 @@ from pprint import pp
 import gregle
 
 
-def log_config() -> None:
+def log_config(level: int) -> None:
     LOG = (Path(__name__).parent / "log").resolve()
     LOG.mkdir(exist_ok=True)
+    LEVELS = ["INFO", "DEBUG"]
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     logging.config.dictConfig(
         {
@@ -36,7 +38,7 @@ def log_config() -> None:
                 },
             },
             "root": {
-                "level": "INFO",
+                "level": LEVELS[min(level, len(LEVELS) - 1)],
                 "handlers": ["console", "file"],
             },
             "disable_existing_loggers": False,
@@ -52,9 +54,10 @@ def events_remote(
     return list(gregle.gcal.cal.get_events(api, calendar, *date_range))
 
 
-def events_local() -> tuple[list[gregle.lu.Events], tuple[datetime.date, datetime.date]]:
-    events, dates = gregle.lu.events()
-    events.sort(key=lambda e: e.first.start)
+def events_local(cache: bool = True) -> tuple[list[gregle.lu.Events], tuple[datetime.date, datetime.date]]:
+    events = gregle.lu.events() if cache else gregle.lu.events.write()
+    dates = gregle.event.datespan(events)
+    events.sort(key=lambda e: e.instance.start)
     return events, dates
 
 
@@ -81,19 +84,41 @@ def gcal_to_lu(
             gregle.log.error("Event %s has no ID", event)
 
 
+def cli() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Sync Google Calendar with LU Timetable")
+
+    parser.add_argument("--force", action="store_true", help="Force update GCals events from LU")
+    parser.add_argument("--dry-run", action="store_true", help="Do not make any changes to Google Calendar")
+    parser.add_argument("--no-cache", dest="cache", action="store_false", help="Do not use cached data")
+    parser.add_argument("-v", "--verbose", dest="log_level", action="count", default=0, help="Increase verbosity")
+
+    return parser.parse_args()
+
+
 def main() -> None:
-    log_config()
+    ns = cli()
+    log_config(ns.log_level)
     try:
-        local, date_range = events_local()
+        local, date_range = events_local(ns.cache)
         with gregle.gcal.service.calendar() as api:
             calendar = gregle.gcal.cal.get_calendar(api, "Timetable")
             remote = events_remote(api, calendar, date_range)
-            for change in gregle.lu.diff(list(gcal_to_lu(api, calendar, remote)), local):
-                pp(change)
-                gregle.gcal.cal.process_diff(api, calendar, change)
+            if ns.force:
+                for event in remote:
+                    if eid := event.id():
+                        pp(event)
+                        gregle.gcal.cal.post_delete(api, calendar, eid, dry_run=ns.dry_run)
+                for event in local:
+                    pp(event)
+                    gregle.gcal.cal.post_create(api, calendar, gregle.gcal.Event.from_event(event), dry_run=ns.dry_run)
+            else:
+                for change in gregle.lu.diff(list(gcal_to_lu(api, calendar, remote)), local):
+                    pp(change)
+                    gregle.gcal.cal.process_diff(api, calendar, change, dry_run=ns.dry_run)
     except Exception as e:
         gregle.log.fatal("Unhandled exception", exc_info=e)
         raise
 
 
-main()
+if __name__ == "__main__":
+    main()
