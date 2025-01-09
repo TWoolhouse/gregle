@@ -1,12 +1,11 @@
 import datetime
-import functools
 import pickle
 from collections.abc import Callable
 from pathlib import Path
 
 
-class FuncCache[R]:
-    def __init__(self, func: Callable[[], R], filepath: Path, lifetime: datetime.timedelta) -> None:
+class FuncCache[**P, R]:
+    def __init__(self, func: Callable[P, R], filepath: Path, lifetime: datetime.timedelta) -> None:
         self.func = func
         self.filepath = filepath
         self.lifetime = lifetime
@@ -20,23 +19,23 @@ class FuncCache[R]:
         with self.filepath.open("rb") as f:
             return pickle.load(f)
 
-    def write(self) -> R:
-        r = self.func()
+    def write(self, *args: P.args, **kwargs: P.kwargs) -> R:
+        r = self.func(*args, **kwargs)
         with self.filepath.open("wb") as f:
             pickle.dump(r, f)
         return r
 
-    def rw(self) -> R:
+    def rw(self, *args: P.args, **kwargs: P.kwargs) -> R:
         if stale(self.filepath, self.lifetime):
-            return self.write()
+            return self.write(*args, **kwargs)
         return self.read_stale()
 
-    def __call__(self) -> R:
-        return self.rw()
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
+        return self.rw(*args, **kwargs)
 
 
-def file[R](filepath: Path, lifetime: datetime.timedelta) -> Callable[[Callable[[], R]], FuncCache[R]]:
-    def file_decorator(func: Callable[[], R]) -> FuncCache[R]:
+def file[**P, R](filepath: Path, lifetime: datetime.timedelta) -> Callable[[Callable[P, R]], FuncCache[P, R]]:
+    def file_decorator(func: Callable[P, R]) -> FuncCache[P, R]:
         return FuncCache(func, filepath, lifetime)
 
     return file_decorator
