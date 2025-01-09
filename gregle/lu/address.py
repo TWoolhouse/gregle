@@ -16,6 +16,7 @@ BUILDING = {
     "N": "Haslegrave Building, University Rd, Loughborough LE11 3TP",
     "U": "Brockington Building, Loughborough University, Margaret Keay Rd, Loughborough LE11 3TU",
     "B": "Brockington Building, Loughborough University, Margaret Keay Rd, Loughborough LE11 3TU",
+    "E": "E Building - Department of International Relations, Politics, and History, Facilities Management Building, Loughborough LE11 3TU",
     "G": "G Block, Loughborough LE11 3TU",
     "T": "Wolfson School of Mechanical, Electrical and Manufacturing Engineering, Loughborough University, Wolfson Building, Ashby Rd, Loughborough LE11 3TU",
     "S": "S building, Loughborough LE11 3UE",
