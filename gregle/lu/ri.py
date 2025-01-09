@@ -6,7 +6,6 @@ import time
 from collections.abc import Generator, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from pprint import pp
 from typing import Self
 
 import selenium
@@ -72,7 +71,7 @@ class PageSelector:
         for item in selector.options:
             name = (item.get_attribute("innerText") or "").lower()
             if (m := RE_WEEK.match(name)) is not None:
-                date = datetime.datetime.strptime(m[3], "%d-%b-%Y").date()
+                date = datetime.datetime.strptime(m[3], "%d-%b-%Y").date()  # noqa: DTZ007
                 weeks.append(Week(item, int(m[1]), int(m[2]), date))
             elif name.startswith("semester"):
                 semesters[int(name.split()[-1])] = item
@@ -85,7 +84,18 @@ class PageSelector:
         return {(week.semester, week.wk): week for week in self.weeks}
 
 
+def fmt_element(node: WebElement) -> str:
+    eid = node.get_attribute("id")
+    if eid:
+        eid = f"#{eid}"
+    classes = ".".join((node.get_attribute("class") or "").split())
+    if classes:
+        classes = f".{classes}"
+    return f"{node.tag_name}{eid}{classes}"
+
+
 def extract_repeated_weeks(weeks: str) -> Iterator[SemWk]:
+    """Extract the weeks that an event repeats on from the timetable."""
     PREFIX = "weeks:"
     weeks = weeks.lstrip(PREFIX).lstrip()
     for sem_data in weeks.split("sem"):
@@ -104,11 +114,21 @@ def extract_repeated_weeks(weeks: str) -> Iterator[SemWk]:
 
 
 def event_from_node(node: WebElement, start: datetime.datetime, weeks: WeekMap) -> EventSchedule:
+    """Extract an event from a node in the timetable.
+
+    Args:
+        node: The `WebElement` node representing the event.
+        start: The `datetime` of the start of the event.
+        weeks: A mapping of the weeks in the timetable to dates.
+
+    Returns:
+        An `EventSchedule` instance representing the event."""
+
     def get_content_of(class_name: str) -> str | None:
         try:
             return node.find_element(By.CLASS_NAME, class_name).get_attribute("innerText")
         except selenium.common.NoSuchElementException:
-            log.exception("Failed to find element '.%s' on node %s", class_name, node, stack_info=True)
+            log.exception("Failed to find element '.%s' on node %s", class_name, fmt_element(node), stack_info=True)
             return None
 
     def remove_ellipsis(string: str) -> str:
@@ -148,6 +168,15 @@ def events_from_weekday(
     weekday: int,
     weeks: WeekMap,
 ) -> list[EventSchedule]:
+    """Extract events from a weekday in the timetable.
+
+    Args:
+        nodes: The list of `WebElement` nodes representing columns in the timetable for a single weekday.
+        weekday: The index of the weekday in the timetable. 0 is Monday.
+        weeks: A mapping of the weeks in the timetable to dates.
+
+    Returns:
+        A list of `EventSchedule` instances representing the events on the weekday."""
     events: list[EventSchedule] = []
 
     loc = -1  # Offset -1 as we pre increment
@@ -166,6 +195,14 @@ def events_from_weekday(
 
 
 def events_from_semester(driver: WebDriver, semester: int) -> list[EventSchedule]:
+    """Extract events from the timetable the `driver` is currently on.
+
+    Args:
+        driver: The `WebDriver` pointing to the timetable.
+        semester: The ID of the semester the timetable is for.
+
+    Returns:
+        A list of `EventSchedule` instances representing the events in the timetable."""
     pages = PageSelector.from_driver(driver)
     weeks = pages.map()
 
@@ -185,6 +222,7 @@ def events_from_semester(driver: WebDriver, semester: int) -> list[EventSchedule
                 continue
             weekday += 1
 
+            # The number of rows this weekday spans
             rows = int(nodes[0].get_attribute("rowspan") or "")
 
             events.extend(events_from_weekday(nodes[1:], weekday, weeks))
@@ -197,20 +235,24 @@ def events_from_semester(driver: WebDriver, semester: int) -> list[EventSchedule
                     )
                 )
 
-    log.info("Found %d unique LU events and %d total events", len(events), sum(len(e.on_dates) for e in events))
+    log.info("LU Semester found %d LU events over %d dates", len(events), sum(len(e.on_dates) for e in events))
 
     return events
 
 
 def driver_build() -> WebDriver:
-    driver = selenium.webdriver.Chrome()
+    """Build a new `WebDriver` instance."""
+    opt = selenium.webdriver.ChromeOptions()
+    opt.add_argument("--log-level=3")
+    opt.add_experimental_option("excludeSwitches", ["enable-logging"])
+    driver = selenium.webdriver.Chrome(options=opt)
     driver.implicitly_wait(1)
     return driver
 
 
 @contextlib.contextmanager
 def wait_timeout(driver: WebDriver, timeout: float = 0) -> Generator[None, None, None]:
-    """Temporarily change the implicit wait timeout of a WebDriver.
+    """Temporarily change the implicit wait timeout of a `WebDriver`.
 
     Restores the original timeout after the context manager exits."""
     old = driver.timeouts.implicit_wait
@@ -221,7 +263,10 @@ def wait_timeout(driver: WebDriver, timeout: float = 0) -> Generator[None, None,
         driver.implicitly_wait(old)
 
 
-def navigate_to_timetable(driver: WebDriver, /, headless: bool) -> WebDriver:
+def navigate_to_timetable(driver: WebDriver, *, headless: bool) -> WebDriver:
+    """Navigate the `driver` to the live timetable page.
+
+    The `driver` will wait for the user to sign in if `headless` is `False`."""
     URL = "https://lucas.lboro.ac.uk/its_apx/f?p=student_timetable"
     log.info("Navigating to live timetable: %s", URL)
     driver.get(URL)
@@ -247,39 +292,54 @@ def _navigate_to_timetable_auto(driver: WebDriver):
 
 
 def navigate_to_src(driver: WebDriver, src: str) -> WebDriver:
+    """Navigate the `driver` to a page with the given HTML `src`"""
     html = base64.b64encode(src.encode("utf-8")).decode()
     driver.get("data:text/html;base64," + html)
     return driver
 
 
-def iter_semesters(driver: WebDriver, cache_dir: Path) -> Iterator[tuple[WebDriver, int]]:
+def iter_semesters(driver: WebDriver, cache_dir: Path, use_cache: bool) -> Iterator[tuple[WebDriver, int]]:
+    """Iterate over the semesters pages in the timetable
+
+    Yields a tuple of the `WebDriver` pointing to the timetable and the semester ID.
+    The timetable is cached in `cache_dir` and is stale after 1 hour.
+
+    Returns:
+        An iterator of tuples containing the `WebDriver` and the semester ID.
+        The order is not guaranteed."""
     f_cache_info = cache_dir / "meta.cache"
-    if cache.stale(f_cache_info, datetime.timedelta(hours=1)):
+    if not use_cache or cache.stale(f_cache_info, datetime.timedelta(hours=1)):
+        log.info("Loading timetable from server...")
         navigate_to_timetable(driver, headless=False)
         cache_dir.mkdir(exist_ok=True, parents=True)
-        f_cache_info.write_text(datetime.datetime.now(datetime.timezone.utc).isoformat())
         pages = PageSelector.from_driver(driver)
-        log.info("Saving weeks to cache")
         for semester, element in pages.semesters.items():
             pages.set(element)
             time.sleep(1)
             (cache_dir / f"{semester}.html").write_text(driver.page_source)
             yield (driver, semester)
+        f_cache_info.write_text(datetime.datetime.now(datetime.timezone.utc).isoformat())
     else:
-        log.info("Parsing weeks from cache")
+        log.info("Loading timetable from cache...")
         for filename in cache_dir.glob("*.html"):
             yield (navigate_to_src(driver, filename.read_text()), int(filename.stem))
 
 
-def get_events() -> list[EventSchedule]:
+def get_events(use_cache: bool) -> list[EventSchedule]:
     events: list[EventSchedule] = []
-    for driver, semester in iter_semesters(driver_build(), PATH.CACHE / "semester"):
-        log.debug("ITER SEM %d", semester)
+    for driver, semester in iter_semesters(driver_build(), PATH.CACHE / "semester", use_cache):
         events.extend(events_from_semester(driver, semester))
     return events
 
 
 def dedupe_events(events: Iterable[EventSchedule]) -> list[EventSchedule]:
+    """Deduplicate events by combining events that share the same `GroupID`
+
+    Merges events that share the same `GroupID`, combining the dates they are on.
+
+    Returns:
+        A list of deduplicated events. The order of the events is not guaranteed.
+        The ID of the events WILL NOT be preserved."""
     tbl: dict[GroupID, tuple[EventInstance, set[datetime.date]]] = {}
 
     for event in events:
@@ -293,8 +353,6 @@ def dedupe_events(events: Iterable[EventSchedule]) -> list[EventSchedule]:
 
 
 @cache.file(PATH.CACHE / "events.pkl", datetime.timedelta(minutes=60))
-def events() -> list[EventSchedule]:
-    es = get_events()
-    es = dedupe_events(es)
-    log.info("Total Events: %d", len(es))
-    return es
+def events(html_cache: bool) -> list[EventSchedule]:
+    es = get_events(html_cache)
+    return dedupe_events(es)

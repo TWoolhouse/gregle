@@ -55,9 +55,12 @@ def events_remote(
 
 
 def events_local(cache: bool = True) -> tuple[list[gregle.lu.Events], tuple[datetime.date, datetime.date]]:
-    events = gregle.lu.events() if cache else gregle.lu.events.write()
+    gregle.log.info("Loading events from LU timetable...")
+    events = gregle.lu.events(True) if cache else gregle.lu.events.write(False)
+    gregle.log.info("Loaded %d LU events over %d dates", len(events), sum(len(e.on_dates) for e in events))
     dates = gregle.event.datespan(events)
-    events.sort(key=lambda e: e.instance.start)
+    gregle.log.info("LU events span %s to %s", *dates)
+    events.sort(key=lambda e: e.time_start())
     return events, dates
 
 
@@ -65,6 +68,7 @@ def gcal_to_lu(
     api: gregle.gcal.service.API,
     calendar: gregle.gcal.service.Calendar,
     events: Iterable[gregle.gcal.Event],
+    dry_run: bool = True,
 ) -> Iterator[gregle.lu.Events]:
     failed: list[gregle.gcal.Event] = []
     for event in events:
@@ -77,7 +81,7 @@ def gcal_to_lu(
         gregle.log.info("Deleting corrupt event %s", event)
         if eid := event.id():
             try:
-                gregle.gcal.cal.post_delete(api, calendar, eid)
+                gregle.gcal.cal.post_delete(api, calendar, eid, dry_run=dry_run)
             except Exception as exc:
                 gregle.log.error("Failed to delete event %s", event, exc_info=exc)
         else:
@@ -112,7 +116,7 @@ def main() -> None:
                     pp(event)
                     gregle.gcal.cal.post_create(api, calendar, gregle.gcal.Event.from_event(event), dry_run=ns.dry_run)
             else:
-                for change in gregle.lu.diff(list(gcal_to_lu(api, calendar, remote)), local):
+                for change in gregle.lu.diff(list(gcal_to_lu(api, calendar, remote, ns.dry_run)), local):
                     pp(change)
                     gregle.gcal.cal.process_diff(api, calendar, change, dry_run=ns.dry_run)
     except Exception as e:
