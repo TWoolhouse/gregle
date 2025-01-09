@@ -240,9 +240,11 @@ def events_from_semester(driver: WebDriver, semester: int) -> list[EventSchedule
     return events
 
 
-def driver_build() -> WebDriver:
+def driver_build(headless: bool) -> WebDriver:
     """Build a new `WebDriver` instance."""
     opt = selenium.webdriver.ChromeOptions()
+    if headless:
+        opt.add_argument("--headless")
     opt.add_argument("--log-level=3")
     opt.add_experimental_option("excludeSwitches", ["enable-logging"])
     driver = selenium.webdriver.Chrome(options=opt)
@@ -298,7 +300,7 @@ def navigate_to_src(driver: WebDriver, src: str) -> WebDriver:
     return driver
 
 
-def iter_semesters(driver: WebDriver, cache_dir: Path, use_cache: bool) -> Iterator[tuple[WebDriver, int]]:
+def iter_semesters(cache_dir: Path, use_cache: bool) -> Iterator[tuple[WebDriver, int]]:
     """Iterate over the semesters pages in the timetable
 
     Yields a tuple of the `WebDriver` pointing to the timetable and the semester ID.
@@ -310,6 +312,7 @@ def iter_semesters(driver: WebDriver, cache_dir: Path, use_cache: bool) -> Itera
     f_cache_info = cache_dir / "meta.cache"
     if not use_cache or cache.stale(f_cache_info, datetime.timedelta(hours=1)):
         log.info("Loading timetable from server...")
+        driver = driver_build(False)
         navigate_to_timetable(driver, headless=False)
         cache_dir.mkdir(exist_ok=True, parents=True)
         pages = PageSelector.from_driver(driver)
@@ -321,13 +324,14 @@ def iter_semesters(driver: WebDriver, cache_dir: Path, use_cache: bool) -> Itera
         f_cache_info.write_text(datetime.datetime.now(datetime.timezone.utc).isoformat())
     else:
         log.info("Loading timetable from cache...")
+        driver = driver_build(True)
         for filename in cache_dir.glob("*.html"):
             yield (navigate_to_src(driver, filename.read_text()), int(filename.stem))
 
 
 def get_events(use_cache: bool) -> list[EventSchedule]:
     events: list[EventSchedule] = []
-    for driver, semester in iter_semesters(driver_build(), PATH.CACHE / "semester", use_cache):
+    for driver, semester in iter_semesters(PATH.CACHE / "semester", use_cache):
         events.extend(events_from_semester(driver, semester))
     return events
 
