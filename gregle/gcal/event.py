@@ -66,7 +66,10 @@ class EventView(Event):
 
     @classmethod
     def from_event(cls, other: "Event") -> Self:
-        tz: str = other.time_start().tzinfo.key
+        tzinfo = other.time_start().tzinfo
+        if tzinfo is None:
+            raise ValueError("Event must have a timezone")
+        tz: str = tzinfo.key  # type: ignore
         start = other.time_start().time()
         occurrences = other.occurrences()
 
