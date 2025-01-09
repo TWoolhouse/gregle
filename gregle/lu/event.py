@@ -106,3 +106,16 @@ class EventSchedule(Event):
         )
 
         return cls(other.id(), event, [start.date()] + list(other.occurrences()))
+
+    @classmethod
+    def combine(cls, *events: Self, eid: str | None = None) -> Self:
+        assert len(events), "No events to combine"
+        assert all(
+            e.instance.group() == events[0].instance.group() for e in events[1:]
+        ), "Events do not share the same group"
+        on_dates = sorted({date for event in events for date in event.on_dates})
+        return cls(
+            eid,
+            events[0].instance,
+            on_dates,
+        )

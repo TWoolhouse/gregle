@@ -22,6 +22,13 @@ def changes(a: Iterable[EventSchedule], b: Iterable[EventSchedule]) -> Iterator[
                 yield ("delete", e)
             case [("b", e)]:
                 yield ("create", e)
+            case [("a", a_first), *a_rest, ("b", rhs)]:
+                lhs = EventSchedule.combine(a_first, *(i[1] for i in a_rest), eid=a_first.id())
+                for e in a_rest:
+                    yield ("delete", e[1])
+                if _is_diff(lhs, rhs):
+                    yield ("update", (lhs, rhs))
+                raise NotImplementedError
             case x:
                 raise ValueError(x)
 
