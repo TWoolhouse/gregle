@@ -12,5 +12,8 @@ requires-python = ">= 3.12"
 readme = "README.md"
 license = { file = "LICENSE" }
 
+[project.scripts]
+gregle = "gregle:__main__.main"
+
 [tool.setuptools]
 py-modules = ["gregle"]
