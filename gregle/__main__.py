@@ -3,13 +3,12 @@ import datetime
 import logging.config
 from collections.abc import Iterable, Iterator
 from pathlib import Path
-from pprint import pp
 
 import gregle
 
 
 def log_config(level: int) -> None:
-    LOG = (Path(__name__).parent / "log").resolve()
+    LOG = (Path(__file__).parent.parent / "log").resolve()
     LOG.mkdir(exist_ok=True)
     LEVELS = ["INFO", "DEBUG"]
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -99,6 +98,16 @@ def cli() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def show_diff(change: gregle.event.Diff[gregle.Event]) -> None:
+    match change:
+        case ("create", event):
+            gregle.log.info("Creating %s", event.pretty())
+        case ("delete", event):
+            gregle.log.info("Deleting %s", event.pretty())
+        case ("update", (old, new)):
+            gregle.log.info("Updating %s --> %s", old.pretty(), new.pretty())
+
+
 def main() -> None:
     ns = cli()
     log_config(ns.log_level)
@@ -110,14 +119,14 @@ def main() -> None:
             if ns.force:
                 for event in remote:
                     if eid := event.id():
-                        pp(event)
+                        show_diff(("delete", event))
                         gregle.gcal.cal.post_delete(api, calendar, eid, dry_run=ns.dry_run)
                 for event in local:
-                    pp(event)
+                    show_diff(("create", event))
                     gregle.gcal.cal.post_create(api, calendar, gregle.gcal.Event.from_event(event), dry_run=ns.dry_run)
             else:
                 for change in gregle.lu.diff(list(gcal_to_lu(api, calendar, remote, ns.dry_run)), local):
-                    pp(change)
+                    show_diff(change)
                     gregle.gcal.cal.process_diff(api, calendar, change, dry_run=ns.dry_run)
     except Exception as e:
         gregle.log.fatal("Unhandled exception", exc_info=e)
